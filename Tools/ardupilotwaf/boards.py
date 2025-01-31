@@ -40,6 +40,7 @@ class Board:
 
     def __init__(self):
         self.with_can = False
+        self.with_littlefs = False
 
     def configure(self, cfg):
         cfg.env.TOOLCHAIN = cfg.options.toolchain or self.toolchain
@@ -677,7 +678,10 @@ Please use a replacement build as follows:
 class sitl(Board):
 
     def __init__(self):
+        super().__init__()
+
         self.with_can = True
+        self.with_littlefs = True
 
     def configure_env(self, cfg, env):
         super(sitl, self).configure_env(cfg, env)
@@ -826,6 +830,9 @@ class sitl(Board):
                 cfg.fatal("Failed to find SFML Audio libraries")
             env.CXXFLAGS += ['-DWITH_SITL_TONEALARM']
 
+        if cfg.options.sitl_littlefs:
+            env.CXXFLAGS += ['-DHAL_OS_LITTLEFS_IO=1']
+
         if cfg.env.DEST_OS == 'cygwin':
             env.LIB += [
                 'winmm',
@@ -945,13 +952,14 @@ class sitl_periph_universal(sitl_periph):
             CAN_APP_NODE_NAME = '"org.ardupilot.ap_periph_universal"',
             APJ_BOARD_ID = 100,
 
-            HAL_PERIPH_ENABLE_GPS = 1,
+            AP_PERIPH_GPS_ENABLED = 1,
             HAL_PERIPH_ENABLE_AIRSPEED = 1,
-            HAL_PERIPH_ENABLE_MAG = 1,
-            HAL_PERIPH_ENABLE_BARO = 1,
+            AP_PERIPH_MAG_ENABLED = 1,
+            AP_PERIPH_BARO_ENABLED = 1,
             HAL_PERIPH_ENABLE_IMU = 1,
             HAL_PERIPH_ENABLE_RANGEFINDER = 1,
-            HAL_PERIPH_ENABLE_BATTERY = 1,
+            AP_PERIPH_BATTERY_ENABLED = 1,
+            AP_PERIPH_BATTERY_BALANCE_ENABLED = 0,
             HAL_PERIPH_ENABLE_EFI = 1,
             HAL_PERIPH_ENABLE_RPM = 1,
             HAL_PERIPH_ENABLE_RPM_STREAM = 1,
@@ -977,7 +985,7 @@ class sitl_periph_gps(sitl_periph):
             CAN_APP_NODE_NAME = '"org.ardupilot.ap_periph_gps"',
             APJ_BOARD_ID = 101,
 
-            HAL_PERIPH_ENABLE_GPS = 1,
+            AP_PERIPH_GPS_ENABLED = 1,
         )
 
 class sitl_periph_battmon(sitl_periph):
@@ -990,7 +998,8 @@ class sitl_periph_battmon(sitl_periph):
             CAN_APP_NODE_NAME = '"org.ardupilot.ap_periph_battmon"',
             APJ_BOARD_ID = 101,
 
-            HAL_PERIPH_ENABLE_BATTERY = 1,
+            AP_PERIPH_BATTERY_ENABLED = 1,
+            AP_PERIPH_BATTERY_BALANCE_ENABLED = 0,
         )
 
 class esp32(Board):
@@ -1061,6 +1070,7 @@ class esp32(Board):
         env.CXXFLAGS.remove('-Werror=shadow')
 
         # wrap malloc to ensure memory is zeroed
+        # note that this also needs to be done in the CMakeLists.txt files
         env.LINKFLAGS += ['-Wl,--wrap,malloc']
 
         # TODO: remove once hwdef.dat support is in place
@@ -1155,6 +1165,7 @@ class chibios(Board):
             '-fno-builtin-vprintf',
             '-fno-builtin-vfprintf',
             '-fno-builtin-puts',
+            '-fno-math-errno',
             '-mno-thumb-interwork',
             '-mthumb',
             '--specs=nano.specs',
@@ -1352,6 +1363,8 @@ class chibios(Board):
 
 class linux(Board):
     def __init__(self):
+        super().__init__()
+
         if self.toolchain == 'native':
             self.with_can = True
         else:
@@ -1390,7 +1403,6 @@ class linux(Board):
         ]
 
         # wrap malloc to ensure memory is zeroed
-        # note that this also needs to be done in the CMakeLists.txt files
         env.LINKFLAGS += ['-Wl,--wrap,malloc']
 
         if cfg.options.force_32bit:
@@ -1498,6 +1510,8 @@ class edge(linux):
     toolchain = 'arm-linux-gnueabihf'
 
     def __init__(self):
+        super().__init__()
+
         self.with_can = True
 
     def configure_env(self, cfg, env):
@@ -1531,6 +1545,8 @@ class bbbmini(linux):
     toolchain = 'arm-linux-gnueabihf'
 
     def __init__(self):
+        super().__init__()
+
         self.with_can = True
 
     def configure_env(self, cfg, env):
@@ -1544,6 +1560,8 @@ class blue(linux):
     toolchain = 'arm-linux-gnueabihf'
 
     def __init__(self):
+        super().__init__()
+
         self.with_can = True
 
     def configure_env(self, cfg, env):
@@ -1558,6 +1576,8 @@ class pocket(linux):
     toolchain = 'arm-linux-gnueabihf'
 
     def __init__(self):
+        super().__init__()
+
         self.with_can = True
 
     def configure_env(self, cfg, env):
@@ -1650,6 +1670,8 @@ class pxfmini(linux):
 
 class aero(linux):
     def __init__(self):
+        super().__init__()
+
         self.with_can = True
 
     def configure_env(self, cfg, env):
@@ -1683,6 +1705,8 @@ class canzero(linux):
     toolchain = 'arm-linux-gnueabihf'
 
     def __init__(self):
+        super().__init__()
+
         self.with_can = True
 
     def configure_env(self, cfg, env):
@@ -1708,6 +1732,8 @@ class QURT(Board):
     toolchain = 'custom'
 
     def __init__(self):
+        super().__init__()
+
         self.with_can = False
 
     def configure_toolchain(self, cfg):

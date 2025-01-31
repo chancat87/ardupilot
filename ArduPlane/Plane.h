@@ -120,7 +120,7 @@
 #if HAL_ADSB_ENABLED
 #include "avoidance_adsb.h"
 #endif
-#include "AP_Arming.h"
+#include "AP_Arming_Plane.h"
 #include "pullup.h"
 
 /*
@@ -1095,7 +1095,6 @@ private:
 #if AP_AIRSPEED_AUTOCAL_ENABLE
     void airspeed_ratio_update(void);
 #endif
-    void compass_save(void);
     void update_logging10(void);
     void update_logging25(void);
     void update_control_mode(void);
@@ -1183,8 +1182,8 @@ private:
     void throttle_slew_limit();
     bool suppress_throttle(void);
     void update_throttle_hover();
-    void channel_function_mixer(SRV_Channel::Aux_servo_function_t func1_in, SRV_Channel::Aux_servo_function_t func2_in,
-                                SRV_Channel::Aux_servo_function_t func1_out, SRV_Channel::Aux_servo_function_t func2_out) const;
+    void channel_function_mixer(SRV_Channel::Function func1_in, SRV_Channel::Function func2_in,
+                                SRV_Channel::Function func1_out, SRV_Channel::Function func2_out) const;
     void flaperon_update();
     void indicate_waiting_for_rud_neutral_to_takeoff(void);
 
@@ -1332,6 +1331,11 @@ public:
     bool set_crosstrack_start(const Location &new_start_location) override;
 
 #endif // AP_SCRIPTING_ENABLED
+
+    bool tkoff_option_is_set(AP_FixedWing::TakeoffOption option) const {
+        return (aparm.takeoff_options & int32_t(option)) != 0;
+    }
+   
 
 };
 

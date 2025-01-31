@@ -377,6 +377,11 @@ class AutoTestCopter(vehicle_test_suite.TestSuite):
         self.set_rc(3, 1500)
         self.save_wp()
 
+        # Disarm and reset before testing mission
+        self.land_and_disarm()
+        self.set_rc(3, 1000)
+        self.change_mode('LOITER')
+
         # save the stored mission to file
         mavproxy = self.start_mavproxy()
         num_wp = self.save_mission_to_file_using_mavproxy(
@@ -386,9 +391,11 @@ class AutoTestCopter(vehicle_test_suite.TestSuite):
         if not num_wp:
             raise NotAchievedException("save_mission_to_file failed")
 
+        self.arm_vehicle()
         self.progress("test: Fly a mission from 1 to %u" % num_wp)
         self.change_mode('AUTO')
-        self.set_current_waypoint(1)
+        # Raise throttle in auto to trigger takeoff
+        self.set_rc(3, 1500)
         self.wait_waypoint(0, num_wp-1, timeout=500)
         self.progress("test: MISSION COMPLETE: passed!")
         self.land_and_disarm()
@@ -2870,7 +2877,7 @@ class AutoTestCopter(vehicle_test_suite.TestSuite):
         self.set_analog_rangefinder_parameters()
         # set use-height to 20m (the parameter is a percentage of max range)
         self.set_parameters({
-            'EK3_RNG_USE_HGT': 200000 / self.get_parameter('RNGFND1_MAX_CM'),
+            'EK3_RNG_USE_HGT': (20 / self.get_parameter('RNGFND1_MAX')) * 100,
         })
         self.reboot_sitl()
 
@@ -3044,7 +3051,7 @@ class AutoTestCopter(vehicle_test_suite.TestSuite):
             "COMPASS_USE3"   : 0,
             # use DroneCAN rangefinder
             "RNGFND1_TYPE" : 24,
-            "RNGFND1_MAX_CM" : 11000,
+            "RNGFND1_MAX" : 110.00,
             # use DroneCAN battery monitoring, and enforce with a arming voltage
             "BATT_MONITOR" : 8,
             "BATT_ARM_VOLT" : 12.0,
@@ -4026,7 +4033,7 @@ class AutoTestCopter(vehicle_test_suite.TestSuite):
             self.set_analog_rangefinder_parameters()
 
             self.set_parameters({
-                "RNGFND1_MAX_CM": 1500
+                "RNGFND1_MAX": 15.00
             })
 
             # configure EKF to use rangefinder for altitude at low altitudes
@@ -4757,7 +4764,9 @@ class AutoTestCopter(vehicle_test_suite.TestSuite):
         while True:
             if self.get_sim_time_cached() - tstart > timeout:
                 raise NotAchievedException("Did not reach destination")
-            if self.distance_to_local_position((x, y, -z_up)) < 1:
+            dist = self.distance_to_local_position((x, y, -z_up))
+            if dist < 1:
+                self.progress(f"Reach distance ({dist})")
                 break
 
     def test_guided_local_position_target(self, x, y, z_up):
@@ -8522,7 +8531,7 @@ class AutoTestCopter(vehicle_test_suite.TestSuite):
             self.set_parameter("SERIAL5_PROTOCOL", 1)
             self.set_parameter("RNGFND1_TYPE", 10)
             self.reboot_sitl()
-            self.set_parameter("RNGFND1_MAX_CM", 32767)
+            self.set_parameter("RNGFND1_MAX", 327.67)
 
             self.progress("Should be unhealthy while we don't send messages")
             self.assert_sensor_state(mavutil.mavlink.MAV_SYS_STATUS_SENSOR_LASER_POSITION, True, True, False)
@@ -8787,10 +8796,10 @@ class AutoTestCopter(vehicle_test_suite.TestSuite):
             self.set_parameters({
                 "RNGFND1_TYPE": 2,  # maxbotix
                 "RNGFND1_ADDR": 0x70,
-                "RNGFND1_MIN_CM": 150,
+                "RNGFND1_MIN": 1.50,
                 "RNGFND2_TYPE": 2,  # maxbotix
                 "RNGFND2_ADDR": 0x71,
-                "RNGFND2_MIN_CM": 250,
+                "RNGFND2_MIN": 2.50,
             })
             self.reboot_sitl()
             self.do_timesync_roundtrip()
@@ -8931,6 +8940,176 @@ class AutoTestCopter(vehicle_test_suite.TestSuite):
         self.assert_distance_sensor_quality(1)
 
         self.do_RTL()
+
+    def RangeFinderDriversLongRange(self):
+        '''test rangefinder above 327m'''
+        # FIXME: when we get a driver+simulator for a rangefinder with
+        # >327m range change this to use that driver
+        self.set_parameters({
+            "SERIAL4_PROTOCOL": 9,
+            "RNGFND1_TYPE": 19,  # BenewakeTF02
+            "WPNAV_SPEED_UP": 1000,  # cm/s
+        })
+        self.customise_SITL_commandline([
+            "--serial4=sim:benewake_tf02",
+        ])
+
+        text_good = "GOOD"
+        text_out_of_range_high = "OUT_OF_RANGE_HIGH"
+
+        rf_bit = mavutil.mavlink.MAV_SYS_STATUS_SENSOR_LASER_POSITION
+
+        alt = 3
+        self.takeoff(alt, mode='GUIDED')
+        self.assert_parameter_value("RNGFND1_MAX", 7.00)
+        self.assert_sensor_state(rf_bit, present=True, enabled=True, healthy=True)
+        m = self.assert_receive_message('DISTANCE_SENSOR', verbose=True)
+        if abs(m.current_distance * 0.01 - alt) > 1:
+            raise NotAchievedException(f"Expected {alt}m range")
+        self.assert_parameter_value("RNGFND1_MAX", m.max_distance * 0.01, epsilon=0.00001)
+        self.assert_parameter_value("RNGFND1_MIN", m.min_distance * 0.01, epsilon=0.00001)
+
+        self.send_statustext(text_good)
+
+        alt = 10
+        self.fly_guided_move_local(0, 0, alt)
+        self.assert_sensor_state(rf_bit, present=True, enabled=True, healthy=True)
+        m = self.assert_receive_message('DISTANCE_SENSOR', verbose=True)
+        if abs(m.current_distance * 0.01 - alt) > 1:
+            raise NotAchievedException(f"Expected {alt}m range")
+        self.assert_parameter_value("RNGFND1_MAX", m.max_distance * 0.01, epsilon=0.00001)
+        self.assert_parameter_value("RNGFND1_MIN", m.min_distance * 0.01, epsilon=0.00001)
+        self.send_statustext(text_out_of_range_high)
+
+        self.progress("Moving the goalposts")
+        self.set_parameter("RNGFND1_MAX", 20)
+        self.assert_sensor_state(rf_bit, present=True, enabled=True, healthy=True)
+        m = self.assert_receive_message('DISTANCE_SENSOR', verbose=True)
+        if abs(m.current_distance * 0.01 - alt) > 1:
+            raise NotAchievedException(f"Expected {alt}m range")
+        self.assert_parameter_value("RNGFND1_MAX", m.max_distance * 0.01, epsilon=0.00001)
+        self.assert_parameter_value("RNGFND1_MIN", m.min_distance * 0.01, epsilon=0.00001)
+        self.send_statustext(text_good)
+        self.delay_sim_time(2)
+
+        dfreader = self.dfreader_for_current_onboard_log()
+
+        self.do_RTL()
+
+        self.progress("Checking in/out of range markers in log")
+        required_range = None
+        count = 0
+        while True:
+            m = dfreader.recv_match(type=["MSG", "RFND"])
+            if m is None:
+                break
+            m_type = m.get_type()
+            if m_type == "MSG":
+                for t in [text_good, text_out_of_range_high]:
+                    if t in m.Message:
+                        required_range = t
+                continue
+            if m_type == "RFND":
+                if required_range is None:
+                    continue
+                if required_range == text_good:
+                    required_state = 4
+                elif required_range == text_out_of_range_high:
+                    required_state = 3
+                else:
+                    raise ValueError(f"Unexpected text {required_range}")
+                if m.Stat != required_state:
+                    raise NotAchievedException(f"Not in expected state want={required_state} got={m.Stat} dist={m.Dist}")
+                self.progress(f"In expected state {required_range}")
+                required_range = None
+                count += 1
+
+        if count < 3:
+            raise NotAchievedException("Did not see range markers")
+
+    def RangeFinderSITLLongRange(self):
+        '''test rangefinder above 327m'''
+        # FIXME: when we get a driver+simulator for a rangefinder with
+        # >327m range change this to use that driver
+        self.set_parameters({
+            "RNGFND1_TYPE": 100,  # SITL
+            "WPNAV_SPEED_UP": 1000,  # cm/s
+            "RNGFND1_MAX": 7000,  # metres
+        })
+        self.reboot_sitl()
+
+        text_good = "GOOD"
+        text_high = "HIGH"
+
+        rf_bit = mavutil.mavlink.MAV_SYS_STATUS_SENSOR_LASER_POSITION
+
+        alt = 3
+        self.takeoff(alt, mode='GUIDED')
+        self.assert_sensor_state(rf_bit, present=True, enabled=True, healthy=True)
+        m = self.assert_receive_message('DISTANCE_SENSOR', verbose=True)
+        got = m.current_distance * 0.01
+        if abs(got - alt) > 1:
+            raise NotAchievedException(f"Expected {alt}m range {got=}")
+
+        self.send_statustext(text_good)
+
+        alt = 635
+        self.fly_guided_move_local(0, 0, alt)
+        self.assert_sensor_state(rf_bit, present=True, enabled=True, healthy=True)
+        m = self.assert_receive_message('DISTANCE_SENSOR', verbose=True)
+        if abs(m.current_distance * 0.01 - alt) > 1:
+            raise NotAchievedException(f"Expected {alt}m range")
+
+        self.send_statustext(text_high)
+
+        dfreader = self.dfreader_for_current_onboard_log()
+
+        # fast descent!
+        def hook(msg, m):
+            if m.get_type() != 'HEARTBEAT':
+                return
+            # tell vehicle to only pay attention to the attitude:
+            bitmask = 0
+            bitmask |= mavutil.mavlink.ATTITUDE_TARGET_TYPEMASK_BODY_ROLL_RATE_IGNORE
+            bitmask |= mavutil.mavlink.ATTITUDE_TARGET_TYPEMASK_BODY_PITCH_RATE_IGNORE
+            bitmask |= mavutil.mavlink.ATTITUDE_TARGET_TYPEMASK_BODY_YAW_RATE_IGNORE
+            bitmask |= mavutil.mavlink.ATTITUDE_TARGET_TYPEMASK_THROTTLE_IGNORE
+
+            self.mav.mav.set_attitude_target_send(
+                0, # time_boot_ms
+                1, # target sysid
+                1, # target compid
+                0, # bitmask of things to ignore
+                mavextra.euler_to_quat([
+                    math.radians(-180),
+                    math.radians(0),
+                    math.radians(0)]), # att
+                0, # roll rate  (rad/s)
+                0, # pitch rate (rad/s)
+                0, # yaw rate   (rad/s)
+                1   # thrust, 0 to 1, translated to a climb/descent rate
+            )
+
+        self.install_message_hook_context(hook)
+
+        self.wait_altitude(0, 30, timeout=200, relative=True)
+        self.do_RTL()
+
+        self.progress("Checking in/out of range markers in log")
+        good = False
+        while True:
+            m = dfreader.recv_match(type=["MSG", "RFND"])
+            if m is None:
+                break
+            m_type = m.get_type()
+            if m_type == "RFND":
+                if m.Dist < 600:
+                    continue
+                good = True
+                break
+
+        if not good:
+            raise NotAchievedException("Did not see good alt")
 
     def ShipTakeoff(self):
         '''Fly Simulated Ship Takeoff'''
@@ -9475,12 +9654,22 @@ class AutoTestCopter(vehicle_test_suite.TestSuite):
             defaults = self.model_defaults_filepath(frame)
             if not isinstance(defaults, list):
                 defaults = [defaults]
+            self.context_push()
+            frame_script = frame_bits.get('frame_example_script', None)
+            if frame_script is not None:
+                self.install_example_script_context(frame_script)
             self.customise_SITL_commandline(
                 [],
                 defaults_filepath=defaults,
                 model=model,
                 wipe=True,
             )
+            if frame_script is not None:
+                self.set_parameters({
+                    "SCR_ENABLE": 1,
+                    "LOG_BITMASK": 65535,
+                })
+                self.reboot_sitl()
 
             # add a listener that verifies yaw looks good:
             def verify_yaw(mav, m):
@@ -9519,6 +9708,8 @@ class AutoTestCopter(vehicle_test_suite.TestSuite):
             self.context_pop()
 
             self.do_RTL()
+
+            self.context_pop()
 
     def Replay(self):
         '''test replay correctness'''
@@ -10876,6 +11067,8 @@ class AutoTestCopter(vehicle_test_suite.TestSuite):
              self.ModeFollow,
              self.RangeFinderDrivers,
              self.RangeFinderDriversMaxAlt,
+             self.RangeFinderDriversLongRange,
+             self.RangeFinderSITLLongRange,
              self.MaxBotixI2CXL,
              self.MAVProximity,
              self.ParameterValidation,
@@ -12342,6 +12535,55 @@ class AutoTestCopter(vehicle_test_suite.TestSuite):
             self.wait_heading(original_heading)
             self.wait_disarmed()
 
+    def CompassLearnCopyFromEKF(self):
+        '''test compass learning whereby we copy learnt offsets from the EKF'''
+        self.reboot_sitl()
+        self.context_push()
+        self.set_parameters({
+            "SIM_MAG1_OFS_X": 1100,
+        })
+        self.assert_prearm_failure("Check mag field", other_prearm_failures_fatal=False)
+        self.context_pop()
+        self.wait_ready_to_arm()
+        self.takeoff(30, mode='ALT_HOLD')
+        # prevent EKF switching to good compass:
+        self.set_parameters({
+            'COMPASS_USE2': 0,
+            'COMPASS_USE3': 0,
+        })
+        self.assert_parameter_value("COMPASS_OFS_X", 20, epsilon=30)
+        new_compass_ofs_x = 200
+        self.set_parameters({
+            "SIM_MAG1_OFS_X": new_compass_ofs_x,
+        })
+        self.set_parameter("COMPASS_LEARN", 2)  # 2 is Copy-from-EKF
+
+        # commence silly flying to try to give the EKF as much
+        # information as possible for it to converge its estimation;
+        # there's a 5e-6 check before we consider the offsets good!
+        self.set_rc(4, 1450)
+        self.set_rc(1, 1450)
+        for i in range(0, 5):  # we descend through all of this:
+            self.change_mode('LOITER')
+            self.delay_sim_time(10)
+            self.change_mode('ALT_HOLD')
+            self.change_mode('FLIP')
+
+        self.set_parameter('ANGLE_MAX', 7000)
+        self.change_mode('ALT_HOLD')
+        for j in 1000, 2000:
+            for i in 1, 2, 4:
+                self.set_rc(i, j)
+                self.delay_sim_time(10)
+        self.set_rc(1, 1500)
+        self.set_rc(2, 1500)
+        self.set_rc(4, 1500)
+
+        self.do_RTL()
+        self.assert_parameter_value("COMPASS_OFS_X", new_compass_ofs_x, epsilon=30)
+        self.reboot_sitl()
+        self.assert_parameter_value("COMPASS_OFS_X", new_compass_ofs_x, epsilon=30)
+
     def tests2b(self):  # this block currently around 9.5mins here
         '''return list of all tests'''
         ret = ([
@@ -12452,6 +12694,7 @@ class AutoTestCopter(vehicle_test_suite.TestSuite):
             self.CommonOrigin,
             self.TestTetherStuck,
             self.ScriptingFlipMode,
+            self.CompassLearnCopyFromEKF,
         ])
         return ret
 

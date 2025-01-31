@@ -119,7 +119,7 @@ public:
 #ifdef AP_PERIPH_HAVE_LED_WITHOUT_NOTIFY
     AP_Int8 led_brightness;
 #endif
-#ifdef HAL_PERIPH_ENABLE_BARO
+#if AP_PERIPH_BARO_ENABLED
     AP_Int8 baro_enable;
 #endif
 #if !defined(HAL_NO_FLASH_SUPPORT) && !defined(HAL_NO_ROMFS_SUPPORT)
@@ -166,7 +166,7 @@ public:
     AP_Int8 pole_count[ESC_NUMBERS];
 #endif
 
-#ifdef HAL_PERIPH_ENABLE_GPS
+#if AP_PERIPH_GPS_ENABLED
     AP_Int8 gps_port;
 #if GPS_MOVING_BASELINE
     AP_Int8 gps_mb_only_can_port;
@@ -204,7 +204,7 @@ public:
     AP_Int16 sysid_this_mav;
 #endif
 
-#ifdef HAL_PERIPH_ENABLE_BATTERY
+#if AP_PERIPH_BATTERY_ENABLED
     AP_Int32 battery_hide_mask;
 #endif
 

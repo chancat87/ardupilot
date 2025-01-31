@@ -58,7 +58,7 @@
 #endif
 
 // Local modules
-#include "AP_Arming.h"
+#include "AP_Arming_Rover.h"
 #include "sailboat.h"
 #if AP_ROVER_ADVANCED_FAILSAFE_ENABLED
 #include "afs_rover.h"
@@ -372,7 +372,6 @@ private:
 
     // sensors.cpp
     void update_compass(void);
-    void compass_save(void);
     void update_wheel_encoder();
 #if AP_RANGEFINDER_ENABLED
     void read_rangefinders(void);
