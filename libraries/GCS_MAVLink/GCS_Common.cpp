@@ -429,9 +429,9 @@ void GCS_MAVLINK::send_distance_sensor(const AP_RangeFinder_Backend *sensor, con
     mavlink_msg_distance_sensor_send(
         chan,
         AP_HAL::millis(),                        // time since system boot TODO: take time of measurement
-        sensor->min_distance_cm(),               // minimum distance the sensor can measure in centimeters
-        sensor->max_distance_cm(),               // maximum distance the sensor can measure in centimeters
-        sensor->distance_cm(),                   // current distance reading
+        MIN(sensor->min_distance() * 100, 65535),// minimum distance the sensor can measure in centimeters
+        MIN(sensor->max_distance() * 100, 65535),// maximum distance the sensor can measure in centimeters
+        MIN(sensor->distance() * 100, 65535),    // current distance reading
         sensor->get_mav_distance_sensor_type(),  // type from MAV_DISTANCE_SENSOR enum
         instance,                                // onboard ID of the sensor == instance
         sensor->orientation(),                   // direction the sensor faces from MAV_SENSOR_ORIENTATION enum
@@ -658,7 +658,7 @@ void GCS_MAVLINK::handle_mission_request(const mavlink_message_t &msg)
 // current mission state.
 MISSION_STATE GCS_MAVLINK::mission_state(const AP_Mission &mission) const
 {
-    if (mission.num_commands() < 2) {  // 1 means just home is present
+    if (!mission.present()) {
         return MISSION_STATE_NO_MISSION;
     }
     switch (mission.state()) {
@@ -2175,7 +2175,6 @@ void GCS_MAVLINK::send_raw_imu()
 #if AP_MAVLINK_MSG_HIGHRES_IMU_ENABLED
 void GCS_MAVLINK::send_highres_imu()
 {
-    // static const uint16_t HIGHRES_IMU_UPDATED_NONE = 0x00;
     static const uint16_t HIGHRES_IMU_UPDATED_XACC = 0x01;
     static const uint16_t HIGHRES_IMU_UPDATED_YACC = 0x02;
     static const uint16_t HIGHRES_IMU_UPDATED_ZACC = 0x04;
@@ -2189,7 +2188,6 @@ void GCS_MAVLINK::send_highres_imu()
     static const uint16_t HIGHRES_IMU_UPDATED_DIFF_PRESSURE = 0x400;
     static const uint16_t HIGHRES_IMU_UPDATED_PRESSURE_ALT = 0x800;
     static const uint16_t HIGHRES_IMU_UPDATED_TEMPERATURE = 0x1000;
-    static const uint16_t HIGHRES_IMU_UPDATED_ALL = 0xFFFF;
 
     const AP_InertialSensor &ins = AP::ins();
     const Vector3f& accel = ins.get_accel();
@@ -2214,8 +2212,7 @@ void GCS_MAVLINK::send_highres_imu()
             HIGHRES_IMU_UPDATED_XGYRO | HIGHRES_IMU_UPDATED_YGYRO | HIGHRES_IMU_UPDATED_ZGYRO), 
         .id = ins.get_first_usable_accel(),
     };
-    
-    
+
 #if AP_COMPASS_ENABLED
     const Compass &compass = AP::compass();
     if (compass.get_count() >= 1) {
@@ -2236,14 +2233,6 @@ void GCS_MAVLINK::send_highres_imu()
     reply.fields_updated |= (HIGHRES_IMU_UPDATED_ABS_PRESSURE | HIGHRES_IMU_UPDATED_DIFF_PRESSURE |
         HIGHRES_IMU_UPDATED_PRESSURE_ALT | HIGHRES_IMU_UPDATED_TEMPERATURE);
 #endif
-    static const uint16_t all_flags = (HIGHRES_IMU_UPDATED_XACC | HIGHRES_IMU_UPDATED_YACC | HIGHRES_IMU_UPDATED_ZACC |
-        HIGHRES_IMU_UPDATED_XGYRO | HIGHRES_IMU_UPDATED_YGYRO | HIGHRES_IMU_UPDATED_ZGYRO | 
-        HIGHRES_IMU_UPDATED_XMAG | HIGHRES_IMU_UPDATED_YMAG | HIGHRES_IMU_UPDATED_ZMAG |
-        HIGHRES_IMU_UPDATED_ABS_PRESSURE | HIGHRES_IMU_UPDATED_DIFF_PRESSURE |
-        HIGHRES_IMU_UPDATED_PRESSURE_ALT | HIGHRES_IMU_UPDATED_TEMPERATURE);
-    if (reply.fields_updated == all_flags) {
-        reply.fields_updated |= HIGHRES_IMU_UPDATED_ALL;
-    }
 
     mavlink_msg_highres_imu_send_struct(chan, &reply);
 }
@@ -3468,6 +3457,11 @@ MAV_RESULT GCS_MAVLINK::handle_preflight_reboot(const mavlink_command_int_t &pac
             WITH_SEMAPHORE(_deadlock_sem.sem);
             send_text(MAV_SEVERITY_WARNING,"deadlock passed");
             return MAV_RESULT_ACCEPTED;
+        }
+        if (is_equal(packet.param4, 101.0f)) {
+            // the capital-U and ~ here are actually important for
+            // testing a MissionPlanner bug!
+            AP_BoardConfig::config_error("YOU~RE WELCOME!");
         }
 #endif  // AP_MAVLINK_FAILURE_CREATION_ENABLED
 
@@ -6834,7 +6828,6 @@ void GCS::update_passthru(void)
     WITH_SEMAPHORE(_passthru.sem);
     uint32_t now = AP_HAL::millis();
     uint32_t baud1, baud2;
-    uint8_t parity1 = 0, parity2 = 0;
     bool enabled = AP::serialmanager().get_passthru(_passthru.port1, _passthru.port2, _passthru.timeout_s,
                                                     baud1, baud2);
     if (enabled && !_passthru.enabled) {
@@ -6844,8 +6837,8 @@ void GCS::update_passthru(void)
         _passthru.last_port1_data_ms = now;
         _passthru.baud1 = baud1;
         _passthru.baud2 = baud2;
-        _passthru.parity1 = parity1 = _passthru.port1->get_parity();
-        _passthru.parity2 = parity2 = _passthru.port2->get_parity();
+        _passthru.parity1 = _passthru.port1->get_parity();
+        _passthru.parity2 = _passthru.port2->get_parity();
         GCS_SEND_TEXT(MAV_SEVERITY_INFO, "Passthru enabled");
         if (!_passthru.timer_installed) {
             _passthru.timer_installed = true;
@@ -6865,11 +6858,11 @@ void GCS::update_passthru(void)
             _passthru.port2->begin(baud2);
         }
         // Restore original parity
-        if (_passthru.parity1 != parity1) {
-            _passthru.port1->configure_parity(parity1);
+        if (_passthru.parity1 != _passthru.port1->get_parity()) {
+            _passthru.port1->configure_parity(_passthru.parity1);
         }
-        if (_passthru.parity2 != parity2) {
-            _passthru.port2->configure_parity(parity2);
+        if (_passthru.parity2 != _passthru.port2->get_parity()) {
+            _passthru.port2->configure_parity(_passthru.parity2);
         }
         GCS_SEND_TEXT(MAV_SEVERITY_INFO, "Passthru disabled");
     } else if (enabled &&
@@ -6890,11 +6883,11 @@ void GCS::update_passthru(void)
             _passthru.port2->begin(baud2);
         }
         // Restore original parity
-        if (_passthru.parity1 != parity1) {
-            _passthru.port1->configure_parity(parity1);
+        if (_passthru.parity1 != _passthru.port1->get_parity()) {
+            _passthru.port1->configure_parity(_passthru.parity1);
         }
-        if (_passthru.parity2 != parity2) {
-            _passthru.port2->configure_parity(parity2);
+        if (_passthru.parity2 != _passthru.port2->get_parity()) {
+            _passthru.port2->configure_parity(_passthru.parity2);
         }
         GCS_SEND_TEXT(MAV_SEVERITY_INFO, "Passthru timed out");
     }

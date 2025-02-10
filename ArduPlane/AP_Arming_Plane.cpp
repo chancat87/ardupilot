@@ -1,7 +1,7 @@
 /*
   additional arming checks for plane
  */
-#include "AP_Arming.h"
+#include "AP_Arming_Plane.h"
 #include "Plane.h"
 
 #include "qautotune.h"
@@ -320,6 +320,10 @@ bool AP_Arming_Plane::arm(const AP_Arming::Method method, const bool do_arming_c
 
     // rising edge of delay_arming oneshot
     delay_arming = true;
+
+#if MODE_AUTOLAND_ENABLED
+    plane.mode_autoland.arm_check();
+#endif
 
     send_arm_disarm_statustext("Throttle armed");
 

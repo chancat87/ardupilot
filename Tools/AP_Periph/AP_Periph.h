@@ -34,7 +34,7 @@
 #if HAL_WITH_ESC_TELEM
 #include <AP_ESC_Telem/AP_ESC_Telem.h>
 #endif
-#ifdef HAL_PERIPH_ENABLE_RTC
+#if AP_PERIPH_RTC_ENABLED
 #include <AP_RTC/AP_RTC.h>
 #endif
 #include <AP_RCProtocol/AP_RCProtocol_config.h>
@@ -62,9 +62,9 @@
 #endif
 
 #include <AP_NMEA_Output/AP_NMEA_Output.h>
-#if HAL_NMEA_OUTPUT_ENABLED && !(HAL_GCS_ENABLED && defined(HAL_PERIPH_ENABLE_GPS))
+#if HAL_NMEA_OUTPUT_ENABLED && !(HAL_GCS_ENABLED && AP_PERIPH_GPS_ENABLED)
     // Needs SerialManager + (AHRS or GPS)
-    #error "AP_NMEA_Output requires Serial/GCS and either AHRS or GPS. Needs HAL_GCS_ENABLED and HAL_PERIPH_ENABLE_GPS"
+    #error "AP_NMEA_Output requires Serial/GCS and either AHRS or GPS. Needs HAL_GCS_ENABLED and AP_PERIPH_GPS_ENABLED"
 #endif
 
 #if HAL_GCS_ENABLED
@@ -174,11 +174,11 @@ public:
     void send_relposheading_msg();
     void can_baro_update();
     void can_airspeed_update();
-#ifdef HAL_PERIPH_ENABLE_IMU
+#if AP_PERIPH_IMU_ENABLED
     void can_imu_update();
 #endif
 
-#ifdef HAL_PERIPH_ENABLE_RANGEFINDER
+#if AP_PERIPH_RANGEFINDER_ENABLED
     void can_rangefinder_update();
 #endif
     void can_battery_update();
@@ -216,7 +216,7 @@ public:
     AP_Stats node_stats;
 #endif
 
-#ifdef HAL_PERIPH_ENABLE_GPS
+#if AP_GPS_ENABLED
     AP_GPS gps;
 #if HAL_NUM_CAN_IFACES >= 2
     int8_t gps_mb_can_port = -1;
@@ -227,15 +227,15 @@ public:
     AP_NMEA_Output nmea;
 #endif
 
-#ifdef HAL_PERIPH_ENABLE_MAG
+#if AP_PERIPH_MAG_ENABLED
     Compass compass;
 #endif
 
-#ifdef HAL_PERIPH_ENABLE_BARO
+#if AP_PERIPH_BARO_ENABLED
     AP_Baro baro;
 #endif
 
-#ifdef HAL_PERIPH_ENABLE_IMU
+#if AP_PERIPH_IMU_ENABLED
     AP_InertialSensor imu;
 #endif
 
@@ -249,7 +249,7 @@ public:
 #endif
 #endif // HAL_PERIPH_ENABLE_RPM
 
-#ifdef HAL_PERIPH_ENABLE_BATTERY
+#if AP_PERIPH_BATTERY_ENABLED
     void handle_battery_failsafe(const char* type_str, const int8_t action) { }
     AP_BattMonitor battery_lib{0, FUNCTOR_BIND_MEMBER(&AP_Periph_FW::handle_battery_failsafe, void, const char*, const int8_t), nullptr};
     struct {
@@ -298,7 +298,7 @@ public:
     AP_Airspeed airspeed;
 #endif
 
-#ifdef HAL_PERIPH_ENABLE_RANGEFINDER
+#if AP_PERIPH_RANGEFINDER_ENABLED
     RangeFinder rangefinder;
     uint32_t last_rangefinder_update_ms;
     uint32_t last_rangefinder_sample_ms[RANGEFINDER_MAX_INSTANCES];
@@ -379,7 +379,7 @@ public:
     Parameters_RCIN g_rcin;
 #endif
 
-#ifdef HAL_PERIPH_ENABLE_BATTERY_BALANCE
+#if AP_PERIPH_BATTERY_BALANCE_ENABLED
     void batt_balance_update();
     BattBalance battery_balance;
 #endif
@@ -429,7 +429,7 @@ public:
     Networking_Periph networking_periph;
 #endif
 
-#ifdef HAL_PERIPH_ENABLE_RTC
+#if AP_PERIPH_RTC_ENABLED
     AP_RTC rtc;
 #endif
 
@@ -449,21 +449,21 @@ public:
 #ifdef HAL_PERIPH_ENABLE_EFI
     uint32_t last_efi_update_ms;
 #endif
-#ifdef HAL_PERIPH_ENABLE_MAG
+#if AP_PERIPH_MAG_ENABLED
     uint32_t last_mag_update_ms;
 #endif
-#ifdef HAL_PERIPH_ENABLE_GPS
+#if AP_PERIPH_GPS_ENABLED
     uint32_t last_gps_update_ms;
     uint32_t last_gps_yaw_ms;
 #endif
     uint32_t last_relposheading_ms;
-#ifdef HAL_PERIPH_ENABLE_BARO
+#if AP_PERIPH_BARO_ENABLED
     uint32_t last_baro_update_ms;
 #endif
 #ifdef HAL_PERIPH_ENABLE_AIRSPEED
     uint32_t last_airspeed_update_ms;
 #endif
-#ifdef HAL_PERIPH_ENABLE_GPS
+#if AP_PERIPH_GPS_ENABLED
     bool saw_gps_lock_once;
 #endif
 
