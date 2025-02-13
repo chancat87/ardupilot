@@ -4241,17 +4241,35 @@ class AutoTestPlane(vehicle_test_suite.TestSuite):
 
     def AutoLandMode(self):
         '''Test AUTOLAND mode'''
+        self.set_parameters({
+            "AUTOLAND_DIR_OFF": 45,
+            "TERRAIN_FOLLOW": 1,
+            "AUTOLAND_CLIMB": 300,
+        })
         self.customise_SITL_commandline(["--home", "-35.362938,149.165085,585,173"])
         self.context_collect('STATUSTEXT')
-        self.takeoff(alt=80, mode='TAKEOFF')
+        self.load_mission("autoland_mission.txt")
+        self.install_terrain_handlers_context()
+        self.change_mode("AUTO")
+        self.wait_ready_to_arm()
+        self.arm_vehicle()
         self.wait_text("Autoland direction", check_context=True)
+        self.wait_waypoint(2, 2, max_dist=100)
         self.change_mode(26)
-        self.wait_disarmed(120)
-        self.progress("Check the landed heading matches takeoff")
-        self.wait_heading(173, accuracy=5, timeout=1)
-        loc = mavutil.location(-35.362938, 149.165085, 585, 173)
+        self.wait_disarmed(400)
+        self.progress("Check the landed heading matches takeoff plus offset")
+        self.wait_heading(218, accuracy=5, timeout=1)
+        loc = mavutil.location(-35.362938, 149.165085, 585, 218)
         if self.get_distance(loc, self.mav.location()) > 35:
             raise NotAchievedException("Did not land close to home")
+        self.set_parameters({
+            "TKOFF_OPTIONS": 2,
+        })
+        self.wait_ready_to_arm()
+        self.set_autodisarm_delay(0)
+        self.arm_vehicle()
+        self.progress("Check the set dir on arm option")
+        self.wait_text("Autoland direction", check_context=True)
 
     def RCDisableAirspeedUse(self):
         '''Test RC DisableAirspeedUse option'''
@@ -4328,6 +4346,65 @@ class AutoTestPlane(vehicle_test_suite.TestSuite):
 
     def AUTOTUNE(self):
         '''Test AutoTune mode'''
+        self.run_autotune()
+
+        # Values that are set to constants
+        # If these are changed then the expected tune paramters should also change
+        self.check_parameter_value("RLL2SRV_TCONST", 0.5, 0)
+        self.check_parameter_value("RLL2SRV_RMAX", 75, 0)
+        self.check_parameter_value("RLL_RATE_IMAX", 0.666, 0.01) # allow some small error to acount for floating point stuff
+        self.check_parameter_value("RLL_RATE_FLTT", 3.183, 0.01)
+        self.check_parameter_value("RLL_RATE_FLTE", 0, 0)
+        self.check_parameter_value("RLL_RATE_FLTD", 10.0, 0)
+        self.check_parameter_value("RLL_RATE_SMAX", 150.0, 0)
+
+        self.check_parameter_value("PTCH2SRV_TCONST", 0.75, 0)
+        self.check_parameter_value("PTCH2SRV_RMAX_UP", 75, 0)
+        self.check_parameter_value("PTCH2SRV_RMAX_DN", 75, 0)
+        self.check_parameter_value("PTCH_RATE_IMAX", 0.666, 0.01)
+        self.check_parameter_value("PTCH_RATE_FLTT", 2.122, 0.01)
+        self.check_parameter_value("PTCH_RATE_FLTE", 0, 0)
+        self.check_parameter_value("PTCH_RATE_FLTD", 10, 0)
+        self.check_parameter_value("PTCH_RATE_SMAX", 150, 0)
+
+        # Check tunned values, targets derived from running tests multiple times and taking average
+        # Expect within 2%
+        # Note that I is not checked directly, its value is derived from P, FF, and TCONST which are all checked.
+        self.check_parameter_value("RLL_RATE_P", 1.222702146, 2)
+        self.check_parameter_value("RLL_RATE_D", 0.070284024, 2)
+        self.check_parameter_value("RLL_RATE_FF", 0.229291457, 2)
+
+        self.check_parameter_value("PTCH_RATE_FF", 0.503520715, 5)
+
+        # There seem to be multiple solutions for pitch. I'm not sure why this is.
+        # Each value is quite consistent becasue of the fixed steps that autotune takes
+        try:
+            # Expect this about 84% of the time
+            self.check_parameter_value("PTCH_RATE_P", 1.746079683, 2)
+        except ValueError:
+            try:
+                # 12%
+                self.check_parameter_value("PTCH_RATE_P", 1.343138218, 2)
+            except ValueError:
+                # 4%
+                self.check_parameter_value("PTCH_RATE_P", 2.26990366, 2)
+
+        try:
+            # 64%
+            self.check_parameter_value("PTCH_RATE_D", 0.108, 2)
+        except ValueError:
+            try:
+                # 28%
+                self.check_parameter_value("PTCH_RATE_D", 0.141, 2)
+            except ValueError:
+                try:
+                    # 4%
+                    self.check_parameter_value("PTCH_RATE_D", 0.049, 2)
+                except ValueError:
+                    # 4%
+                    self.check_parameter_value("PTCH_RATE_D", 0.0836, 2)
+
+    def run_autotune(self):
         self.takeoff(100)
         self.change_mode('AUTOTUNE')
         self.context_collect('STATUSTEXT')
@@ -4343,6 +4420,14 @@ class AutoTestPlane(vehicle_test_suite.TestSuite):
                 self.progress("Got %s" % str(m))
                 if axis == "Roll":
                     axis = "Pitch"
+                    # Center sticks to allow roll to return to nuetral before starting pitch
+                    self.set_rc(1, 1500)
+                    self.set_rc(2, 1500)
+                    self.delay_sim_time(15)
+
+                    # Reset toggle value so the initial input is in a consistent directon
+                    rc_value = 1000
+
                 elif axis == "Pitch":
                     break
                 else:
@@ -4388,7 +4473,7 @@ class AutoTestPlane(vehicle_test_suite.TestSuite):
             "RLL_RATE_FLTT": 20,
             "PTCH_RATE_FLTT": 20,
         })
-        self.AUTOTUNE()
+        self.run_autotune()
 
     def LandingDrift(self):
         '''Circuit with baro drift'''
@@ -6434,6 +6519,28 @@ class AutoTestPlane(vehicle_test_suite.TestSuite):
             )
             self.disarm_vehicle()
 
+    def CompassLearnInFlight(self):
+        '''check we can learn compass offsets in flight'''
+        self.context_push()
+        self.set_parameters({
+            "COMPASS_OFS_X": 1100,
+        })
+        self.assert_prearm_failure("Check mag field", other_prearm_failures_fatal=False)
+        self.context_pop()
+        self.wait_ready_to_arm()
+        self.takeoff(30, mode='TAKEOFF')
+        self.assert_parameter_value("COMPASS_OFS_X", 20, epsilon=30)
+        old_compass_ofs_x = self.get_parameter('COMPASS_OFS_X')
+        self.set_parameters({
+            "COMPASS_OFS_X": 1100,
+        })
+        self.send_set_parameter("COMPASS_LEARN", 3)  # 3 is in-flight learning
+        self.wait_parameter_value("COMPASS_LEARN", 0)
+        self.assert_parameter_value("COMPASS_OFS_X", old_compass_ofs_x, epsilon=30)
+        self.fly_home_land_and_disarm()
+        self.reboot_sitl()
+        self.assert_parameter_value("COMPASS_OFS_X", old_compass_ofs_x, epsilon=30)
+
     def _MAV_CMD_EXTERNAL_WIND_ESTIMATE(self, command):
         self.reboot_sitl()
 
@@ -6828,6 +6935,7 @@ class AutoTestPlane(vehicle_test_suite.TestSuite):
             self.MAV_CMD_DO_LAND_START,
             self.MAV_CMD_NAV_ALTITUDE_WAIT,
             self.InteractTest,
+            self.CompassLearnInFlight,
             self.MAV_CMD_MISSION_START,
             self.TerrainRally,
             self.MAV_CMD_NAV_LOITER_UNLIM,

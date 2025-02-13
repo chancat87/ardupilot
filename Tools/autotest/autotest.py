@@ -96,7 +96,7 @@ def build_binaries():
 
 def build_examples(**kwargs):
     """Build examples."""
-    for target in 'Pixhawk1', 'navio', 'linux':
+    for target in 'Pixhawk1', 'navio', 'linux', 'sitl':
         print("Running build.examples for %s" % target)
         try:
             util.build_examples(target, **kwargs)
@@ -154,17 +154,17 @@ def run_unit_tests():
 
 def run_clang_scan_build():
     """Run Clang Scan-build utility."""
-    if util.run_cmd("scan-build python waf configure",
+    if util.run_cmd("scan-build python3 waf configure",
                     directory=util.reltopdir('.')) != 0:
         print("Failed scan-build-configure")
         return False
 
-    if util.run_cmd("scan-build python waf clean",
+    if util.run_cmd("scan-build python3 waf clean",
                     directory=util.reltopdir('.')) != 0:
         print("Failed scan-build-clean")
         return False
 
-    if util.run_cmd("scan-build python waf build",
+    if util.run_cmd("scan-build python3 waf build",
                     directory=util.reltopdir('.')) != 0:
         print("Failed scan-build-build")
         return False

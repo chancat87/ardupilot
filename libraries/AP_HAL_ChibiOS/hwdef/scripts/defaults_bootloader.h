@@ -62,3 +62,8 @@
 #define STM32_DMA_REQUIRED 1
 #endif
 
+#ifndef HAL_OS_POSIX_IO
+#define HAL_OS_POSIX_IO 0
+#endif
+
+#define AP_NETWORKING_CAN_MCAST_BRIDGING_ENABLED 0

@@ -2309,8 +2309,8 @@ local function mavlink_receiver()
 
    msg_map[NAMED_VALUE_FLOAT_msgid] = "NAMED_VALUE_FLOAT"
 
-   -- initialise mavlink rx with number of messages, and buffer depth
-   mavlink.init(1, 10)
+   -- initialize MAVLink rx with buffer depth and number of rx message IDs to register
+   mavlink.init(10, 1)
 
    -- register message id to receive
    mavlink.register_rx_msgid(NAMED_VALUE_FLOAT_msgid)
@@ -3035,7 +3035,9 @@ function load_trick(id)
    local pc = path_composer(name, paths)
    gcs:send_text(MAV_SEVERITY.INFO, string.format("Loaded trick%u '%s'", id, name))
    command_table[id] = PathFunction(pc, name)
-   logger:log_file_content(filename)
+   if logger.log_file_content then
+      logger:log_file_content(filename)
+   end
 
    calculate_timestamps(command_table[id])
 end

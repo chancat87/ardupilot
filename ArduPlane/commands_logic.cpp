@@ -26,15 +26,18 @@ bool Plane::start_command(const AP_Mission::Mission_Command& cmd)
         // reset loiter start time. New command is a new loiter
         loiter.start_time_ms = 0;
 
-        AP_Mission::Mission_Command next_nav_cmd;
-        const uint16_t next_index = mission.get_current_nav_index() + 1;
-        const bool have_next_cmd = mission.get_next_nav_cmd(next_index, next_nav_cmd);
-        auto_state.wp_is_land_approach = have_next_cmd && (next_nav_cmd.id == MAV_CMD_NAV_LAND);
+        // Mission lookahead is only valid in auto
+        if (control_mode == &mode_auto) {
+            AP_Mission::Mission_Command next_nav_cmd;
+            const uint16_t next_index = mission.get_current_nav_index() + 1;
+            const bool have_next_cmd = mission.get_next_nav_cmd(next_index, next_nav_cmd);
+            auto_state.wp_is_land_approach = have_next_cmd && (next_nav_cmd.id == MAV_CMD_NAV_LAND);
 #if HAL_QUADPLANE_ENABLED
-        if (have_next_cmd && quadplane.is_vtol_land(next_nav_cmd.id)) {
-            auto_state.wp_is_land_approach = false;
-        }
+            if (have_next_cmd && quadplane.is_vtol_land(next_nav_cmd.id)) {
+                auto_state.wp_is_land_approach = false;
+            }
 #endif
+        }
     }
 
     switch(cmd.id) {
@@ -262,8 +265,6 @@ bool Plane::verify_command(const AP_Mission::Mission_Command& cmd)        // Ret
     case MAV_CMD_NAV_LOITER_TO_ALT:
         return verify_loiter_to_alt(cmd);
 
-    case MAV_CMD_NAV_RETURN_TO_LAUNCH:
-        return verify_RTL();
 
     case MAV_CMD_NAV_CONTINUE_AND_CHANGE_ALT:
         return verify_continue_and_change_alt();
@@ -382,9 +383,6 @@ void Plane::do_takeoff(const AP_Mission::Mission_Command& cmd)
     // zero locked course
     steer_state.locked_course_err = 0;
     steer_state.hold_course_cd = -1;
-#if MODE_AUTOLAND_ENABLED
-    takeoff_state.initial_direction.initialized = false;
-#endif
     auto_state.baro_takeoff_alt = barometer.get_altitude();
 }
 
@@ -559,11 +557,6 @@ bool Plane::verify_takeoff()
             gps.ground_speed() > min_gps_speed &&
             hal.util->safety_switch_state() != AP_HAL::Util::SAFETY_DISARMED) {
             auto_state.takeoff_speed_time_ms = millis();
-#if MODE_AUTOLAND_ENABLED
-            plane.takeoff_state.initial_direction.heading = wrap_360(plane.gps.ground_course() + plane.mode_autoland.landing_dir_off);
-            takeoff_state.initial_direction.initialized = true;
-            gcs().send_text(MAV_SEVERITY_INFO, "Autoland direction= %u",int(takeoff_state.initial_direction.heading));
-#endif
         }
         if (auto_state.takeoff_speed_time_ms != 0 &&
             millis() - auto_state.takeoff_speed_time_ms >= 2000) {
@@ -791,22 +784,6 @@ bool Plane::verify_loiter_to_alt(const AP_Mission::Mission_Command &cmd)
     return result;
 }
 
-bool Plane::verify_RTL()
-{
-    if (g.rtl_radius < 0) {
-        loiter.direction = -1;
-    } else {
-        loiter.direction = 1;
-    }
-    update_loiter(abs(g.rtl_radius));
-	if (auto_state.wp_distance <= (uint32_t)MAX(get_wp_radius(),0) || 
-        reached_loiter_target()) {
-			gcs().send_text(MAV_SEVERITY_INFO,"Reached RTL location");
-			return true;
-    } else {
-        return false;
-	}
-}
 
 bool Plane::verify_continue_and_change_alt()
 {
@@ -1170,6 +1147,13 @@ bool Plane::verify_loiter_heading(bool init)
     if (quadplane.in_vtol_auto()) {
         // skip heading verify if in VTOL auto
         return true;
+    }
+#endif
+
+#if MODE_AUTOLAND_ENABLED
+    if (control_mode == &mode_autoland) {
+        // autoland mode has its own lineup criterion
+        return mode_autoland.landing_lined_up();
     }
 #endif
 
